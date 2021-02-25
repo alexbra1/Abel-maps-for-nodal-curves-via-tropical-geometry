@@ -1,0 +1,330 @@
+######################################################################################################################################################################
+#
+# This is a SageMath code
+# Every graph has vertices labelled 0,1,..., n-1, quasistability is always considered in relation to the vertex 0.
+# Every graph has edges labelled 0,1,..., m-1
+# Divisors on graphs are written as a dictionary with keys being the vertices, for example {0:2, 1:3, 2:-4} corresponds to the divisor 2v_0+3v_1-4v_2.
+#
+#####################################################################################################################################################################
+
+
+#########################################
+#                                       #
+#    Algorithm 1                        #
+#                                       #
+#########################################
+
+# Given a graph T, which is a tree, and a polarization mu, returns the unique (0,mu)-quasistable divisor D on T, see Proposition 3.4
+# This is line 4 in Algorithm 1
+def tree_quasistable(T,mu): 
+    vert=T.vertices()
+    if len(vert)==1:                    #If T has only one vertex the divisor is the same as the polarization.
+        return {vert[0]:mu[vert[0]]}
+    j=1
+    v=vert[j]
+    while T.degree(v)!=1:               # Find v a leaf of T that is distinct from 0
+        j=j+1
+        v=vert[j]
+    dv=ceil(mu[v]-1/2)                  # Determines D(v)
+    v1=T.neighbors(v)[0]
+    mu[v1]=mu[v1]+mu[v]-dv              # We let T1 be the Tree after we remove the vertex v and we change the polarization accordingly
+    T1=copy(T)
+    T1.delete_vertex(v)
+    d1=tree_quasistable(T1,mu)          # Repeat the process for T1
+    d1.update({v:dv})
+    return d1                           # d1 is the divisor D
+
+# Given a graph G, a spanning tree T, and a polarization mu on G, returns the induced polarization mu on T and the set of edges E(G)\setminus E(T).
+# This is line 3 on Algorithm 1
+def mu_induced(G,T,mu):
+    mu1=copy(mu)
+    edges=[]
+    for e in G.edges():
+        if e not in T.edges():
+            mu1[e[0]]=mu1[e[0]]+1/2             # For each edge removed we have to sum 1/2 in the incident vertices, see Equation 28, pag15
+            mu1[e[1]]=mu1[e[1]]+1/2
+            edges.append(e)
+    return [mu1,edges]    
+
+# List the edges of G not in T
+def edges_not_in(G,T): 
+    edges=[]
+    for e in G.edges():
+        if e not in T.edges():
+            edges.append(e)
+    return edges
+
+
+# Given a graph G and a polarization mu, returns the list of all maximal (0,mu)-quasistable pseudo-divisors on G, see Proposition 3.4
+def graph_quasistable_max(G,mu): 
+    span_tree=list(G.spanning_trees(labels=True))
+    result=[]
+    for T in span_tree:                         # We list all spanning trees of G
+        X=mu_induced(G,T,mu)                    # For each spanning tree T, we consider the set of edges given by the edges not in T and the induced polarization
+        mu1=X[0]
+        edges=X[1]
+        D=tree_quasistable(T,mu1)               # Find the unique quasistable divisor on T
+        result.append([edges,D])                # The pseudo divisor is given as list [E,D], where E is a list of edges and D is a dictionary with keys being the vertices
+    return result
+
+
+#########################################
+#                                       #
+#    Algorithm 2                        #
+#                                       #
+#########################################
+
+# Given a tree T returns a dictionary with keys being the vertices of tree and tand values being the path from 0 to the corresponding vertex
+def paths_T(T): 
+    pathsT={}
+    for i in T.vertices():
+        pathsT.update({i:list(T.shortest_simple_paths(0,i,report_edges=True,labels=True))[0]})
+    return pathsT
+
+#Given a graph G and a spanning tree T, return a dictionary with keys being the edges of G not in T and values being vectors in C_1(G,ZZ) given by the cycle induced by the corresponding edge
+# The orientation assumed on G is as follows, each edge in T is oriented away from the root, and each edge in G not in T is oriented from the lowest to the highest vertex. 
+# For each edge e in G not in T, we sum all edges in the path from 0 to the source s(e) of e, we sum the edge e, and we subtract all edges in the path from 0 to the target t(e) of e. 
+# This is line 3 in Algorithm 2
+def vectors_GT(G,T): 
+    vectorsGT={}
+    pathsT=paths_T(T)
+    edges=edges_not_in(G,T)                                       #List the edges in G not in T
+    m=len(G.edges())
+    for e in edges:
+        v=[0]*m
+        for e1 in pathsT[e[0]]:
+            v[e1[2]]=1
+        v[e[2]]=1
+        for e1 in pathsT[e[1]]:
+            v[e1[2]]=v[e1[2]]-1
+        vectorsGT.update({e:vector(v)})
+    return vectorsGT
+
+
+# Given a graph G and a spanning tree T, return a dictionary with keys being the edges of G, and values being the integral over e written in the basis w_e, dual of the basis gamma_e of H_1(G,RR).
+# This is line 5 in Algorithm 2
+def int_e(G,T):
+    int_e1={}
+    m=len(G.edges())
+    edges=edges_not_in(G,T)
+    vectorsGT=vectors_GT(G,T)                                                # List the induced cycles gamma_e
+    for e in G.edges():
+        ve=[0]*m
+        ve[e[2]]=1                                                           # The canonical vector corresponding to e in C_1(G,ZZ)
+        inte_in_the_basis_w=[]                              
+        for e1 in edges:
+            inte_in_the_basis_w.append(vector(ve).dot_product(vectorsGT[e1])) #Computes the dot product of e with gamma_e1
+        int_e1.update({e:vector(inte_in_the_basis_w)})
+    return int_e1
+
+
+#Given a graph G, a spanning tree T and a divisor D on G, returns the sum of D(v) times the integral over the path from 0 to v in T as an element of H_1(G,RR) written in the basis w_e
+# This is the first half of line 7 in algorithm 2
+def abel_div(G,T,D):
+    g=len(edges_not_in(G,T))
+    pathsGT=paths_T(T)
+    inte=int_e(G,T)
+    vec=vector([0]*g)
+    for v in G.vertices():
+        for e in pathsGT[v]:
+            vec=vec+D[v]*inte[e]
+    return vec
+
+
+# Given a tree T and an edge e, returns True if the orientation on e induced by T is from the lowest to highest vertex, and False otherwise
+def source_tree(T,e):
+    pathsT=paths_T(T)
+    v1=e[0]
+    v2=e[1]
+    if Set(pathsT[v1]).issubset(Set(pathsT[v2])):
+        return True
+    return False
+
+# Given a graph G, a spanning tree T and an edge e, returns the image of the integral over the path from 0 to the source of e and the integral of e, both written in the basis we
+def abel_edge(G,T,e): 
+    edges=edges_not_in(G,T)
+    g=len(edges)
+    pathsT=paths_T(T)            # Initialize the paths in T from 0 to each vertex
+    inte=int_e(G,T)
+    if e in edges:                   # v1 is the source of e, which depends if e is in the Tree or not
+        v1=e[0]
+    else:
+        if source_tree(T,e):
+            v1=e[0]
+        else:
+            v1=e[1]
+    vec=vector([0]*g)
+    for e1 in pathsT[v1]:
+        vec=vec+inte[e1]           # vec is the integral of the path from 0 to the source of e
+    return [-vec, -inte[e]]        # We return with a minus sign, as usually we are subtracting points in the Abel map
+
+
+
+
+# Given a graph G, a spanning tree T, a list of edges E, and a divisor D on G, we return a pair, where the first element of the pair is chi(0) and the second element is the matrix defining the affine map chi
+# This is line 6 in Algorithm 2
+def abel(G,T,E,D):
+    vec_ini=abel_div(G,T,D)                     # We initialize the sum in chi(0) given by D
+    M=[]                                        # M will be the matrix
+    for e in E:
+        abeledge=abel_edge(G,T,e)               # for each edge in the list E
+        vec_ini=vec_ini+abeledge[0]             # We add the integral over the path from 0 to the source of E
+        M.append(abeledge[1])                   # And add to M the column which is the image of the integral over e
+    return [vec_ini, matrix(M).transpose()]
+
+
+
+
+#########################################
+#                                       #
+#    Algorithm 3                        #
+#                                       #
+#########################################
+
+
+#Given a graph G and a spanning tree T, returns the matrix M, which have columns equal to (<gamma_e',gamma_e>)
+def Lambda_basis(G,T):
+    vectorsGT=vectors_GT(G,T)
+    vectorskeys=list(vectorsGT.keys())
+    g=len(vectorskeys)
+    M=[]
+    for j1 in range(g):
+        L1=[]
+        for j2 in range(g):
+            L1.append(vectorsGT[vectorskeys[j1]].dot_product(vectorsGT[vectorskeys[j2]]))
+        M.append(L1)
+    M=matrix(M)
+    return M
+
+
+# Given n returns the hypercube [0,1]^n
+def hypercube(n):
+    P=polytopes.hypercube(n)
+    v=vector([1]*n)
+    return 1/2*(P.translation(v))
+
+# Given an affine transformation A=[vec_ini, matrix], returns the image of the hypercube H=[0,1]^n via A, that is, matrix*H+vec_ini.
+def image_hypercube(A):
+    vec_ini=A[0]
+    M=A[1]
+    n=len(M[0])
+    Hyper=hypercube(n)
+    vertices=[]
+    for v in Hyper.vertices():
+        vertices.append(vec_ini+M*vector(v))
+    return Polyhedron(vertices=vertices)
+
+
+# Given a graph G, a spanning tree T and a polarization mu return the a list of the polytopes P_{E,D} that are the images of chi_{E,D} for (E,D) a maximal (0,mu)-quasistable pseudo-divisor
+def decomposition_quasi(G,T,mu):
+    Gquasi=graph_quasistable_max(G,mu)
+    polylist=[]
+    for ED in Gquasi:
+        A=abel(G,T,ED[0],ED[1])
+        polylist.append(image_hypercube(A))
+    return polylist
+
+
+#########################################
+#                                       #
+#    Algorithm 4                        #
+#                                       #
+#########################################
+
+# Given a affine transformation A=[v_ini,M] and a polytope P outputs the preimage of P via A
+def pre_image(A,P):
+    ieqs=[]
+    vini=A[0]
+    M=A[1]
+    n=len(M[0])
+    for inep in P.Hrepresentation():      
+        inep=list(inep)
+        a=inep[0]
+        v=vector(inep[1:])
+        ieqs.append([vini.dot_product(v)+a]+list(M.transpose()*v))   
+    return Polyhedron(ieqs=ieqs)
+
+# Given a affine transformation A=[v_ini,M] from the hypercube [0,1]^n, and a polytope P outputs the preimage of P via A
+def pre_image_hyper(A,P):
+    ieqs=[]
+    vini=A[0]
+    M=A[1]
+    n=len(M[0])
+    for inep in P.Hrepresentation():            # For each inequality inep defining P
+        inep=list(inep)
+        a=inep[0]
+        v=vector(inep[1:])
+        ieqs.append([vini.dot_product(v)+a]+list(M.transpose()*v))    # We pull back the inequality inep via A
+    return Polyhedron(ieqs=ieqs).intersection(hypercube(n))           # we intersect with the hypercube [0,1]^n
+
+# Given an invertible square matrix M and two polytopes Pin and Pquasi return the integral points of M^(-1)*(Pin+(-1)*Pquasi)
+def integral_points(M, Pin, Pquasi):
+    return (M.inverse()*(Pin+(-1)*Pquasi)).integral_points()
+
+
+# Given a graph G, a spanning tree T, a pair ED=[E, D], and a polarization mu returns the decomposition of [0,1]^m that resolves the tropical Abel map induced by E=(e_1,..., e_m) and D
+def decomposition(G,T,ED,mu):
+    polylist=decomposition_quasi(G,T,mu)  # Compute all polytopes \widetilde{P}_{E,D}, this is lines 1,2,3 in Algorithm 4
+    M=Lambda_basis(G,T)   # We initialize the matrix M that induces the isomorphism ZZ^g to H_1(\Gamma,ZZ)
+    m=len(ED[0])         
+    A=abel(G,T,ED[0],ED[1])      #A is the affine transformation \chi induced by ED
+    Pin=image_hypercube(A)       # The image \chi(e_1 x e_2 x ... x e_m)
+    result=[]
+    for Pquasi in polylist:
+        integralpoints=integral_points(M,Pin,Pquasi)  # Computes the integral points, this is line 4 in Algorith 4
+        for v in integralpoints:                      # This is line 5 in Algorithm 4
+            R=pre_image_hyper(A,Pquasi.translation(M*v))   # Computes the pre image of the translation of \widetilde{P}_{E,D}, this is line 6
+            if R.dimension()==m:                    # We check if this preimage is full dimensional
+                result.append(R)      # We return  the list of polytopes R 
+    return result
+
+# We check if the decomposition given by the Algorithm above has an unimodular triangulation and return such triangulation if it exists. This could take a long time
+def decomp_with_triangulation(G,T,ED,mu):
+    decomplist=decomposition(G,T,ED,mu)
+    m=len(ED[0])
+    result=[]
+    for R in decomplist:
+        vol=R.volume()
+        l=factorial(m)*vol
+        pointconfig=PointConfiguration(R.vertices())
+        for triang in pointconfig.triangulations():
+            if len(triang)==l:
+                break
+        if len(triang)==l:
+            result.append((R,triang))
+        else:
+            result.append((R,'erro'))
+    return result
+
+
+#########################################
+#                                       #
+#    Example                            #
+#                                       #
+#########################################
+
+
+# We initialize the graph in Example 6.1, it is important to label the edges 0,1,2,3
+G=Graph([[0,1,2],[(0,2,0),(1,2,1),(0,1,2),(0,1,3)]],multiedges=True)  
+'The graph G'
+G.show(edge_labels=True)
+'--------------------------------------'
+
+# We choose a spanning tree of G, it is important to retain the labels of the edges on the spanning trees
+T=list(G.spanning_trees(labels=True))[0]
+'Its spanning tree'
+T.show(edge_labels=True)
+'--------------------------------------'
+
+# We initialize the trivial polarization
+mu=[0,0,0]
+
+# We initialize the edges e_1 x ... e_d and the initial divisor
+E=[(0,1,3),(0,1,2),(0,2,0)]
+D={0:3,1:0,2:0}
+
+# We compute the decomposition
+decomp=decomposition(G,T,[E,D],mu)
+'The decomposition of [0,1]^3 induced by the tropical Abel map'
+for Q in decomp:
+    Q.vertices()
